@@ -1,0 +1,16 @@
+# Example crontab for /etc/cron.d. See crontab(5).
+
+SHELL=/bin/sh
+
+# Make recursive snapshots of zroot and tank/foo, keeping 24
+# hourly, seven daily, eight weekly, 24 monthly, and unlimited yearly
+# snapshots.
+@hourly		root	snapshots.sh -c -p -t hourly -k 24 -r zroot tank/foo
+@daily		root	snapshots.sh -c -p -t daily -k 7 -r zroot tank/foo
+@weekly		root	snapshots.sh -c -p -t weekly -k 8 -r zroot tank/foo
+@monthly	root	snapshots.sh -c -p -t monthly -k 24 -r zroot tank/foo
+@yearly		root	snapshots.sh -c -t yearly -r zroot tank/foo
+
+# Make a non-recursive snapshot of tank/bar daily at 5:00,
+# preserving the three most recent snapshots.
+0 5 * * *	root	snapshots.sh -c -p -t my-custom-tag -k 3 tank/bar
