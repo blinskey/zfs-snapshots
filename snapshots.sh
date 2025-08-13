@@ -52,10 +52,6 @@
 
 set -e
 
-usage() {
-	printf "usage: %s [-cplrnvh] [-t tag] [-k num] [dataset ...]\n" "$0"
-}
-
 tag=
 keep=
 recursive=
@@ -64,6 +60,28 @@ verbose=
 create=
 prune=
 list=
+
+usage() {
+	printf "usage: %s [-cplrnvh] [-t tag] [-k num] [dataset ...]\n" "$0"
+}
+
+# Selectively destroys old snapshots for the filesystem specified by $1.
+# Behavior is controlled by the global variables $tag, $keep, $dry_run, and
+# $verbose.
+prune() {
+	snapshots=$(zfs list -t snapshot -o name -S name -H "$1")
+	to_delete=$(printf "%s\n" "$snapshots" | grep "@${tag}-" | tail -n +"$((keep + 1))")
+	for s in $to_delete; do
+		cmd="zfs destroy $s"
+		if [ -n "$dry_run" ] || [ -n "$verbose" ]; then
+			printf "%s\n" "$cmd"
+		fi
+
+		if [ -z "$dry_run" ]; then
+			$cmd
+		fi
+	done
+}
 
 while getopts t:k:cplrknvh name; do
 	case $name in
@@ -119,12 +137,6 @@ if [ -n "$recursive" ]; then
 fi
 readonly create_cmd
 
-destroy_cmd='zfs destroy'
-if [ -n "$recursive" ]; then
-	destroy_cmd="$destroy_cmd -R"
-fi
-readonly destroy_cmd
-
 # Create snapshots.
 if [ -n "$create" ]; then
 	for dataset in "$@"; do
@@ -146,18 +158,13 @@ fi
 # Prune snapshots.
 if [ -n "$prune" ]; then
 	for dataset in "$@"; do
-		snapshots=$(zfs list -t snapshot -o name -S name -H "$dataset")
-		to_delete=$(printf "%s\n" "$snapshots" | grep "@${tag}-" | tail -n +"$((keep + 1))")
-		for s in $to_delete; do
-			cmd="$destroy_cmd $s"
-			if [ -n "$dry_run" ] || [ -n "$verbose" ]; then
-				printf "%s\n" "$cmd"
-			fi
-
-			if [ -z "$dry_run" ]; then
-				$cmd
-			fi
-		done
+		if [ -n "$recursive" ]; then
+			for filesystem in $(zfs list -t filesystem -o name -H -r "$dataset"); do
+				prune "$filesystem"
+			done
+		else
+			prune "$dataset"
+		fi
 	done
 fi
 
