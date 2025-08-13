@@ -41,7 +41,7 @@
 #	-c			create snapshot(s) (requires -t)
 #	-p			prune snapshots (requires -t and -k)
 #	-l			list snapshots
-#	-r			recursively create or delete snapshots
+#	-r			recursively create, prune, or list snapshots
 #	-n			dry run: print commands that would be executed, but do not
 #				actually modify data
 #	-v			verbose mode
