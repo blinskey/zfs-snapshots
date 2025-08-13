@@ -65,10 +65,77 @@ usage() {
 	printf "usage: %s [-cplrnvh] [-t tag] [-k num] [dataset ...]\n" "$0"
 }
 
+check_args() {
+	if [ -z "$create" ] && [ -z "$prune" ] && [ -z "$list" ]; then
+		printf "At least one of -c, -p, and -l must be specified.\n"
+		usage
+		exit 1
+	fi
+
+	if [ "$#" -eq 0 ] && { [ -n "$create" ] || [ -n "$prune" ]; }; then
+		printf "At least one dataset must be specified\n"
+		usage
+		exit 1
+	fi
+
+	if { [ -n "$create" ] || [ -n "$prune" ]; } && [ -z "$tag" ]; then
+		printf "Missing -t option\n"
+		usage
+		exit 1
+	fi
+
+	if [ -n "$prune" ] && [ -z "$keep" ]; then
+		printf "Missing -k option\n"
+		usage
+		exit 1
+	fi
+
+	if [ -z "$prune" ] && [ -n "$keep" ]; then
+		printf "\-k option is only valid with -p\n"
+		usage
+		exit 1
+	fi
+}
+
+create_snapshots() {
+	create_cmd='zfs snapshot'
+	if [ -n "$recursive" ]; then
+		create_cmd="$create_cmd -r"
+	fi
+	readonly create_cmd
+
+	for dataset in "$@"; do
+		# FreeBSD's date -I option uses a "+00:00" suffix rather than "Z", and
+		# the + character is illegal in snapshot names, so we have to specify
+		# the format manually.
+		cmd="$create_cmd ${dataset}@${tag}-$(date -z utc +%Y-%m-%dT%H:%M:%SZ)"
+
+		if [ -n "$dry_run" ] || [ -n "$verbose" ]; then
+			printf "%s\n" "$cmd"
+		fi
+
+		if [ -z "$dry_run" ]; then
+			$cmd
+		fi
+	done
+}
+
+prune_snapshots() {
+	for dataset in "$@"; do
+		if [ -n "$recursive" ]; then
+			for filesystem in $(zfs list -t filesystem -o name -H -r "$dataset"); do
+				prune_fs "$filesystem"
+			done
+		else
+			prune_fs "$dataset"
+		fi
+	done
+}
+
 # Selectively destroys old snapshots for the filesystem specified by $1.
 # Behavior is controlled by the global variables $tag, $keep, $dry_run, and
 # $verbose.
-prune() {
+prune_fs() {
 	snapshots=$(zfs list -t snapshot -o name -S name -H "$1")
 	to_delete=$(printf "%s\n" "$snapshots" | grep "@${tag}-" | tail -n +"$((keep + 1))")
 	for s in $to_delete; do
@@ -81,6 +148,20 @@ prune() {
 			$cmd
 		fi
 	done
+}
+
+list_snapshots() {
+	cmd="zfs list"
+	if [ -n "$recursive" ]; then
+		cmd="$cmd -r"
+	fi
+	snapshots=$($cmd -t snapshot -o name -s name -H "$@")
+
+	if [ -n "$tag" ]; then
+		printf "%s\n" "$snapshots" | grep "@${tag}-"
+	else
+		printf "%s\n" "$snapshots"
+	fi
 }
 
 while getopts t:k:cplrknvh name; do
@@ -101,84 +182,16 @@ while getopts t:k:cplrknvh name; do
 done
 shift $((OPTIND - 1))
 
-if [ -z "$create" ] && [ -z "$prune" ] && [ -z "$list" ]; then
-	printf "At least one of -c, -p, and -l must be specified.\n"
-	usage
-	exit 1
-fi
+check_args "$@"
 
-if [ "$#" -eq 0 ] && { [ -n "$create" ] || [ -n "$prune" ]; }; then
-	printf "At least one dataset must be specified\n"
-	usage
-	exit 1
-fi
-
-if { [ -n "$create" ] || [ -n "$prune" ]; } && [ -z "$tag" ]; then
-	printf "Missing -t option\n"
-	usage
-	exit 1
-fi
-
-if [ -n "$prune" ] && [ -z "$keep" ]; then
-	printf "Missing -k option\n"
-	usage
-	exit 1
-fi
-
-if [ -z "$prune" ] && [ -n "$keep" ]; then
-	printf "\-k option is only valid with -p\n"
-	usage
-	exit 1
-fi
-
-create_cmd='zfs snapshot'
-if [ -n "$recursive" ]; then
-	create_cmd="$create_cmd -r"
-fi
-readonly create_cmd
-
-# Create snapshots.
 if [ -n "$create" ]; then
-	for dataset in "$@"; do
-		# FreeBSD's date -I option uses a "+00:00" suffix rather than "Z", and
-		# the + character is illegal in snapshot names, so we have to specify
-		# the format manually.
-		cmd="$create_cmd ${dataset}@${tag}-$(date -z utc +%Y-%m-%dT%H:%M:%SZ)"
-
-		if [ -n "$dry_run" ] || [ -n "$verbose" ]; then
-			printf "%s\n" "$cmd"
-		fi
-
-		if [ -z "$dry_run" ]; then
-			$cmd
-		fi
-	done
+	create_snapshots "$@"
 fi
 
-# Prune snapshots.
 if [ -n "$prune" ]; then
-	for dataset in "$@"; do
-		if [ -n "$recursive" ]; then
-			for filesystem in $(zfs list -t filesystem -o name -H -r "$dataset"); do
-				prune "$filesystem"
-			done
-		else
-			prune "$dataset"
-		fi
-	done
+	prune_snapshots "$@"
 fi
 
-# List snapshots.
 if [ -n "$list" ]; then
-	cmd="zfs list"
-	if [ -n "$recursive" ]; then
-		cmd="$cmd -r"
-	fi
-	snapshots=$($cmd -t snapshot -o name -s name -H "$@")
-
-	if [ -n "$tag" ]; then
-		printf "%s\n" "$snapshots" | grep "@${tag}-"
-	else
-		printf "%s\n" "$snapshots"
-	fi
+	list_snapshots "$@"
 fi
