@@ -145,10 +145,6 @@ fi
 
 # Prune snapshots.
 if [ -n "$prune" ]; then
-	if [ -n "$prune_only" ]; then
-		keep=$((keep + 1))
-	fi
-
 	for dataset in "$@"; do
 		snapshots=$(zfs list -t snapshot -o name -S name -H "$dataset")
 		to_delete=$(printf "%s\n" "$snapshots" | grep "@${tag}-" | tail -n +"$((keep + 1))")
